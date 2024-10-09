@@ -1,0 +1,107 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+const char* ssid = "---";
+const char* password = "----";
+const char* mqttServer = "broker.netpie.io";
+const int mqttPort = 1883;
+const char* mqttClientID = "---"; 
+const char* mqttUsername = "---";
+const char* mqttPassword = "---";
+
+// สร้างตัวแปรเพื่อเก็บค่าเซ็นเซอร์
+float tdsValue, phValue, tempValue;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// ฟังก์ชันสำหรับเชื่อมต่อ WiFi
+void setupWiFi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+}
+
+// ฟังก์ชันสำหรับเชื่อมต่อ MQTT
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT...");
+
+    if (client.connect(mqttClientID, mqttUsername, mqttPassword)) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed with state ");
+      Serial.print(client.state());
+      delay(2000);
+    }
+  }
+}
+
+// ฟังก์ชันสำหรับอ่านค่าจากเซ็นเซอร์
+void readSensors() {
+  int tdsRaw = analogRead(34); // ค่า ADC ที่อ่านจาก TDS
+  int phRaw = analogRead(32);  // ค่า ADC ที่อ่านจาก pH
+
+  float voltage = (tdsRaw / 4095.0) * 3.3;
+  tdsValue = (voltage * 1000) / 2;
+
+  voltage = (phRaw / 4095.0) * 3.3;
+  phValue = 3.5 * voltage + 0;
+
+  tempValue = 25.5; // ค่าเทอร์โมมิเตอร์ (แก้ไขได้ตามเซ็นเซอร์จริง)
+}
+
+// ฟังก์ชันสำหรับส่งข้อมูลไปยัง NETPIE 2020
+void sendDataToNetpie() {
+  String payload = "{";
+  payload += "\"tdsValue\":" + String(tdsValue) + ",";
+  payload += "\"phValue\":" + String(phValue) + ",";
+  payload += "\"tempValue\":" + String(tempValue);
+  payload += "}";
+
+  Serial.print("Sending payload: ");
+  Serial.println(payload);
+
+  // ส่งข้อมูลไปยัง topic ของ NETPIE 2020
+  if (client.publish("@shadow/data/update", payload.c_str())) {
+    Serial.println("Payload sent successfully");
+  } else {
+    Serial.println("Failed to send payload");
+  }
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  setupWiFi();
+
+  client.setServer(mqttServer, mqttPort);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  Serial.println("Reading sensor data...");
+  readSensors();         // อ่านค่าจากเซ็นเซอร์
+
+  Serial.println("Sending data to NETPIE...");
+  sendDataToNetpie();   
+
+  delay(10000);    
+}
+
+
